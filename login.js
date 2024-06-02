@@ -1,3 +1,40 @@
+// Encryption and decryption functions using Web Crypto API
+async function getKeyMaterial(secret) {
+    const enc = new TextEncoder();
+    return crypto.subtle.importKey(
+        'raw',
+        enc.encode(secret),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+    );
+}
+
+async function getKey(keyMaterial, salt) {
+    return crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function encryptData(data, secret) {
+    const enc = new TextEncoder();
+    const keyMaterial = await getKeyMaterial(secret);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const key = await getKey(keyMaterial, salt);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, enc.encode(data));
+    return { encrypted: new Uint8Array(encrypted), iv: iv, salt: salt };
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     checkLoginStatus();
 
@@ -13,9 +50,10 @@ document.addEventListener('DOMContentLoaded', function() {
             body: JSON.stringify({ email, password })
         })
         .then(response => response.json())
-        .then(data => {
+        .then(async data => {
             if (data.token) {
-                chrome.storage.sync.set({ userEmail: email, userToken: data.token }, function() {
+                const { encrypted, iv, salt } = await encryptData(data.token, data.secret);
+                chrome.storage.sync.set({ hanuelUserEmail: email, hanuelUserToken: Array.from(encrypted), secret: data.secret, iv: Array.from(iv), salt: Array.from(salt) }, function() {
                     console.log('Login successful. User email and token saved');
                     displayUserInfo(email);
                 });
@@ -31,7 +69,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('logoutButton').addEventListener('click', function() {
-        chrome.storage.sync.remove(['userEmail', 'userToken'], function() {
+        chrome.storage.sync.remove(['hanuelUserEmail', 'hanuelUserToken', 'secret', 'iv', 'salt'], function() {
             console.log('User logged out');
             displayLoginForm();
         });
@@ -39,9 +77,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function checkLoginStatus() {
-    chrome.storage.sync.get(['userEmail'], function(result) {
-        if (result.userEmail) {
-            displayUserInfo(result.userEmail);
+    chrome.storage.sync.get(['hanuelUserEmail'], function(result) {
+        if (result.hanuelUserEmail) {
+            displayUserInfo(result.hanuelUserEmail);
         } else {
             displayLoginForm();
         }

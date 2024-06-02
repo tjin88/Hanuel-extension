@@ -1,7 +1,42 @@
+// Encryption and decryption functions using Web Crypto API
+async function getKeyMaterial(secret) {
+    const enc = new TextEncoder();
+    return crypto.subtle.importKey(
+        'raw',
+        enc.encode(secret),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+    );
+}
+
+async function getKey(keyMaterial, salt) {
+    return crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function decryptData(encrypted, iv, salt, secret) {
+    const keyMaterial = await getKeyMaterial(secret);
+    const key = await getKey(keyMaterial, salt);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, encrypted);
+    return new TextDecoder().decode(decrypted);
+}
+
+
 function extractAsuraScansInfo(titleTag) {
     if (titleTag) {
         try {
-            console.log('Title tag:', titleTag)
+            console.log('Title tag:', titleTag);
             let novel_source = 'AsuraScans';
             titleTag = titleTag.replace('– Asura Scans', '').trim();
 
@@ -9,7 +44,7 @@ function extractAsuraScansInfo(titleTag) {
             let bookTitle = parts[0].trim();
             let chapter = parts[1].trim();
 
-            console.log('Returning book info:', { bookTitle, chapter, novel_source })
+            console.log('Returning book info:', { bookTitle, chapter, novel_source });
             return { bookTitle, chapter, novel_source };
         } catch (error) {
             console.error('Error extracting book info:', error.message);
@@ -43,7 +78,7 @@ function extractLightNovelPubInfo(titleTag) {
 
 function extractBookInfo(activeTab) {
     let hostname = new URL(activeTab.url).hostname;
-    console.log('activeTab:', activeTab)
+    console.log('activeTab:', activeTab);
 
     if (hostname.includes('asuracomic.net')) {
         console.log('Extracting AsuraScans info');
@@ -58,30 +93,37 @@ function extractBookInfo(activeTab) {
 }
 
 function getUserEmailAndToken(callback) {
-    chrome.storage.sync.get(['userEmail', 'userToken'], function(result) {
-        if (result.userEmail && result.userToken) {
-            console.log('User email and token:', result.userEmail, result.userToken);
-            callback(result.userEmail, result.userToken);
+    chrome.storage.sync.get(['hanuelUserEmail', 'hanuelUserToken', 'secret', 'iv', 'salt'], async function(result) {
+        if (result.hanuelUserEmail && result.hanuelUserToken && result.secret && result.iv && result.salt) {
+            try {
+                const decryptedToken = await decryptData(new Uint8Array(result.hanuelUserToken), new Uint8Array(result.iv), new Uint8Array(result.salt), result.secret);
+                console.log('User email and decrypted token:', result.hanuelUserEmail, decryptedToken);
+                callback(result.hanuelUserEmail, decryptedToken);
+            } catch (error) {
+                console.error('Error decrypting token:', error);
+                callback(null, null);
+            }
         } else {
             console.error('User not logged in');
             callback(null, null);
         }
     });
 }
+
 chrome.tabs.onUpdated.addListener(function(tabId, changeInfo, tab) {
     if (changeInfo.status === 'complete') {
         let bookInfo = extractBookInfo(tab);
         if (bookInfo) {
-            getUserEmailAndToken(function(userEmail, userToken) {
-                if (userEmail && userToken) {
+            getUserEmailAndToken(async function(hanuelUserEmail, hanuelUserToken) {
+                if (hanuelUserEmail && hanuelUserToken) {
                     console.log('Sending book info:', bookInfo);
 
                     fetch('http://127.0.0.1:8000/centralized_API_backend/api/update-reading', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-User-Email': userEmail,
-                            'Authorization': `Bearer ${userToken}`
+                            'X-User-Email': hanuelUserEmail,
+                            'Authorization': `Bearer ${hanuelUserToken}`
                         },
                         body: JSON.stringify(bookInfo)
                     })
