@@ -1,0 +1,27 @@
+{
+    "manifest_version": 2,
+    "name": "Book Tracker",
+    "version": "1.0",
+    "permissions": [
+      "history",
+      "tabs",
+      "activeTab",
+      "storage",
+      "http://127.0.0.1/*",
+      "https://asuracomic.net/*",
+      "https://lightnovelpub.vip/*"
+    ],
+    "background": {
+      "scripts": ["background.js"]
+    },
+    "browser_action": {
+      "default_popup": "login.html",
+      "default_title": "Login to Book Tracker"
+    },
+    "applications": {
+      "gecko": {
+        "id": "tjin368@gmail.com"
+      }
+    }
+  }
+  
